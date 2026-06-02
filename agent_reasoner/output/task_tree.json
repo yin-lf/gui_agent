@@ -1,0 +1,80 @@
+{
+  "T1": {
+    "id": "T1",
+    "name": "打开QQ音乐App",
+    "description": "在手机桌面找到并点击QQ音乐App图标，打开应用",
+    "status": "pending",
+    "priority": "high",
+    "dependencies": [],
+    "worker_type": null,
+    "result": null,
+    "error": null,
+    "progress": 0.0,
+    "current_step": "",
+    "start_time": null,
+    "end_time": null,
+    "retry_count": 0,
+    "max_retries": 3,
+    "input_data": {}
+  },
+  "T2": {
+    "id": "T2",
+    "name": "搜索歌曲《夜曲》",
+    "description": "在QQ音乐首页顶部搜索框内点击，输入关键词'夜曲 周杰伦'，然后点击搜索按钮",
+    "status": "pending",
+    "priority": "high",
+    "dependencies": [
+      "T1"
+    ],
+    "worker_type": null,
+    "result": null,
+    "error": null,
+    "progress": 0.0,
+    "current_step": "",
+    "start_time": null,
+    "end_time": null,
+    "retry_count": 0,
+    "max_retries": 3,
+    "input_data": {}
+  },
+  "T3": {
+    "id": "T3",
+    "name": "点击播放《夜曲》",
+    "description": "在搜索结果列表中，找到歌曲《夜曲》- 周杰伦，点击其右侧的播放按钮（或点击歌曲名进入播放页后点击播放）",
+    "status": "pending",
+    "priority": "high",
+    "dependencies": [
+      "T2"
+    ],
+    "worker_type": null,
+    "result": null,
+    "error": null,
+    "progress": 0.0,
+    "current_step": "",
+    "start_time": null,
+    "end_time": null,
+    "retry_count": 0,
+    "max_retries": 3,
+    "input_data": {}
+  },
+  "T4": {
+    "id": "T4",
+    "name": "设置定时关闭为30分钟",
+    "description": "在播放页面，点击右上角或底部菜单中的'定时关闭'图标（或设置按钮），在弹出的选项中选择'30分钟后'，然后确认",
+    "status": "pending",
+    "priority": "high",
+    "dependencies": [
+      "T3"
+    ],
+    "worker_type": null,
+    "result": null,
+    "error": null,
+    "progress": 0.0,
+    "current_step": "",
+    "start_time": null,
+    "end_time": null,
+    "retry_count": 0,
+    "max_retries": 3,
+    "input_data": {}
+  }
+}

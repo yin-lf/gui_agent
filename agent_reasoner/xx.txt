@@ -1,0 +1,15 @@
+# 参考
+    https://cloud.tencent.com/developer/article/2666487
+# 环境配置
+    conda create -n gui_agent python=3.10 -y
+    pip install requests
+    pip install pyyaml
+# 设置 API Key
+    export DEEPSEEK_API_KEY="sk-0c34efc89ef34efe8a7454089a06e172"
+# 运行
+    cd /home/ylf/gui_agent
+    python -m agent_reasoner.main
+#示例
+    帮我点一份麻辣香锅到天津大学北洋园校区格园一斋
+    我要一个人去北京出差三天两夜，帮我预定离高铁站近的酒店
+    我要睡觉了，帮我放一首舒缓的华语流行音乐，定时关闭
