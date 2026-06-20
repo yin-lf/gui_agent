@@ -104,14 +104,57 @@ class WidgetUnderstander:
         try:
             result = self.llm.chat_json(messages)
             return self._parse_llm_result(result)
+        except ValueError as e:
+            # JSON 解析失败：尝试从原始文本手动提取
+            print(f"     ⚠️ JSON解析异常，尝试原始文本回退：{e}")
+            try:
+                raw_response = self.llm.chat(messages)  # 获取原始文本
+                result = self._extract_json_from_text(raw_response)
+                if result:
+                    return self._parse_llm_result(result)
+            except Exception:
+                pass
+            raise  # 都不行就抛出
         except Exception as e:
             print(f"⚠️  LLM 控件匹配失败：{e}")
-            # 兜底：返回一个空目标的 click 操作，让执行器去尝试
-            return Action(
-                action_type=ActionType.CLICK,
-                target=None,
-                reasoning=f"LLM匹配失败({e})，使用兜底方案",
-            )
+            raise  # 不再兜底空目标，让上层决定是否重试
+
+    @staticmethod
+    def _extract_json_from_text(text: str) -> dict | None:
+        """从 LLM 原始文本中尽力提取 JSON。"""
+        import re, json
+
+        # 尝试直接解析
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # 去掉 markdown 代码块
+        if "```" in text:
+            lines = text.split("\n")
+            cleaned = []
+            in_code = False
+            for line in lines:
+                if line.strip().startswith("```"):
+                    in_code = not in_code
+                    continue
+                if in_code:
+                    cleaned.append(line)
+            try:
+                return json.loads("\n".join(cleaned))
+            except json.JSONDecodeError:
+                pass
+
+        # 正则提取最外层 {}
+        match = re.search(r'\{[\s\S]*\}', text)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+        return None
 
     def _parse_llm_result(self, result: dict) -> Action:
         """将 LLM 返回的 JSON 解析为 Action 对象。"""
