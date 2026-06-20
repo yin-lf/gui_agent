@@ -179,6 +179,32 @@ class AppAgent:
             # 4. 执行操作（带内置重试）
             result = self.executor.execute_with_retry(action)
 
+            # 4.5 操作后验证：确认操作真的生效了（不只是"没报错"）
+            if result.success and action.action_type in (
+                ActionType.CLICK, ActionType.SET_TEXT,
+            ):
+                time.sleep(1.0)  # 等 UI 响应
+                verify_screen = self.captor.capture(screenshot=False)
+                # 简单验证：检查控件树是否变化（包名/Activity/内容变了）
+                changed = (
+                    verify_screen.current_package != self._current_screen.current_package
+                    or verify_screen.current_activity != self._current_screen.current_activity
+                    or verify_screen.hierarchy_xml != self._current_screen.hierarchy_xml
+                )
+                if not changed:
+                    # 控件树没变 → 操作可能没生效，重试一次
+                    if match_attempt < MAX_MATCH_RETRIES:
+                        print(f"     ⚠️ 操作后页面未变化，可能未生效，2s 后重试...")
+                        time.sleep(2.0)
+                        continue
+                    else:
+                        print(f"     ⚠️ 多次尝试后页面仍未变化，继续下一步")
+                else:
+                    self._current_screen = verify_screen
+                    new_app = self.captor.get_current_app_name()
+                    if new_app != current_app or verify_screen.current_activity != self._current_screen.current_activity:
+                        print(f"     📱 页面已切换 → {new_app}")
+
             # 5. 记录日志
             log_entry = {
                 "timestamp": time.time(),
