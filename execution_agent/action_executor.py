@@ -103,19 +103,13 @@ class ActionExecutor:
     # ==================== 各操作的实现 ====================
 
     def _exec_click(self, action: Action) -> ExecutionResult:
-        """点击操作（含等待控件出现）。"""
+        """点击操作（含等待控件出现 + 坐标降级）。"""
         selector = self._build_selector_with_wait(action.target)
         if selector is None:
-            return ExecutionResult(
-                success=False,
-                status=ExecutionStatus.RETRYABLE,
-                error="点击操作缺少目标控件信息",
-                action_summary=action.summary(),
-            )
+            return self._fallback_click_by_bounds(action)
 
         try:
             # 不传 timeout，避免 uiauto2 内部调用有 bug 的 wait() RPC
-            # （我们已经在 _build_selector_with_wait 中用 exists 轮询等过了）
             self.device(**selector).click()
             widget_info = self._format_target(action.target)
             return ExecutionResult(
@@ -124,31 +118,27 @@ class ActionExecutor:
                 action_summary=action.summary(),
             )
         except Exception as e:
-            err_str = str(e).lower()
-            # uiauto2 RPC 兼容性问题 或 控件未找到 → 可重试
-            if any(kw in err_str for kw in [
-                "not found", "no matching", "timeout",
-                "-32002", "-32006", "-32001", "rpcerror",
-                "uiobject",
-            ]):
+            err_str = str(e)
+            # uiauto2 RPC 兼容性问题 → 降级用坐标点击
+            if '-32002' in err_str or 'rpcerror' in err_str.lower():
+                exc_name = type(e).__name__
+                print(f"     ⚠️ 选择器点击失败({exc_name})，降级为坐标点击...")
+                return self._fallback_click_by_bounds(action)
+            # 控件未找到 → 可重试
+            if any(kw in err_str.lower() for kw in ["not found", "no matching", "timeout", "uiobject"]):
                 return ExecutionResult(
                     success=False,
                     status=ExecutionStatus.RETRYABLE,
-                    error=f"控件操作失败（可重试）：{e}",
+                    error=f"控件未找到：{e}",
                     action_summary=action.summary(),
                 )
             raise
 
     def _exec_set_text(self, action: Action) -> ExecutionResult:
-        """文本输入操作。"""
+        """文本输入操作（含坐标降级）。"""
         selector = self._build_selector_with_wait(action.target)
         if selector is None:
-            return ExecutionResult(
-                success=False,
-                status=ExecutionStatus.RETRYABLE,
-                error="输入操作缺少目标控件信息",
-                action_summary=action.summary(),
-            )
+            return self._fallback_set_text_by_bounds(action)
 
         if not action.input_text:
             return ExecutionResult(
@@ -160,7 +150,6 @@ class ActionExecutor:
 
         try:
             elem = self.device(**selector)
-            # 不传 timeout，避免 uiauto2 内部调用有 bug 的 wait() RPC
             elem.set_text(action.input_text)
             widget_info = self._format_target(action.target)
             return ExecutionResult(
@@ -169,17 +158,17 @@ class ActionExecutor:
                 action_summary=action.summary(),
             )
         except Exception as e:
-            err_str = str(e).lower()
-            # uiauto2 RPC 兼容性问题 或 控件未找到 → 可重试
-            if any(kw in err_str for kw in [
-                "not found", "no matching", "timeout",
-                "-32002", "-32006", "-32001", "rpcerror",
-                "uiobject",
-            ]):
+            err_str = str(e)
+            # uiauto2 RPC 兼容性问题 → 降级用 ADB input
+            if '-32002' in err_str or 'rpcerror' in err_str.lower():
+                exc_name = type(e).__name__
+                print(f"     ⚠️ 选择器输入失败({exc_name})，降级为ADB输入...")
+                return self._fallback_set_text_by_bounds(action)
+            if any(kw in err_str.lower() for kw in ["not found", "no matching", "timeout", "uiobject"]):
                 return ExecutionResult(
                     success=False,
                     status=ExecutionStatus.RETRYABLE,
-                    error=f"输入操作失败（可重试）：{e}",
+                    error=f"输入框未找到：{e}",
                     action_summary=action.summary(),
                 )
             raise
@@ -260,6 +249,82 @@ class ActionExecutor:
         t = action.wait_time if action.wait_time > 0 else 2.0
         time.sleep(t)
         return ExecutionResult(success=True, action_summary=action.summary())
+
+    # ==================== 降级方法（uiauto2 RPC 不兼容时使用）================
+
+    def _fallback_click_by_bounds(self, action: Action) -> ExecutionResult:
+        """当选择器操作失败时，用坐标点击作为降级方案。"""
+        if action.target and action.target.bounds:
+            x1, y1, x2, y2 = action.target.bounds
+            cx = (x1 + x2) / 2
+            cy = (y1 + y2) / 2
+            try:
+                self.device.click(cx, cy)
+                return ExecutionResult(
+                    success=True,
+                    actual_widget=f"坐标({cx:.0f}, {cy:.0f}) [{action.target.summary()}]",
+                    action_summary=action.summary(),
+                )
+            except Exception as e:
+                return ExecutionResult(
+                    success=False, status=ExecutionStatus.RETRYABLE,
+                    error=f"坐标点击也失败：{e}", action_summary=action.summary(),
+                )
+        # 没有坐标信息，无法降级
+        return ExecutionResult(
+            success=False, status=ExecutionStatus.RETRYABLE,
+            error="选择器失败且无坐标信息，无法降级",
+            action_summary=action.summary(),
+        )
+
+    def _fallback_set_text_by_bounds(self, action: Action) -> ExecutionResult:
+        """当选择器输入失败时，用 ADB shell input 作为降级方案。"""
+        if not action.input_text:
+            return ExecutionResult(
+                success=False, status=ExecutionStatus.FATAL,
+                error="缺少输入文本", action_summary=action.summary(),
+            )
+
+        # 先尝试用 ADB 直接输入文本（需要先点击输入框获取焦点）
+        try:
+            # 如果有坐标，先点击该位置获取焦点
+            if action.target and action.target.bounds:
+                x1, y1, x2, y2 = action.target.bounds
+                cx = (x1 + x2) / 2
+                cy = (y1 + y2) / 2
+                self.device.click(cx, cy)
+                import time as _time
+                _time.sleep(0.5)
+
+            # 用 adb shell input text 输入中文（需要 uiauto2 的 helper）
+            self.device.send_keys(action.input_text)
+            target_str = f"坐标({cx:.0f}, {cy:.0f})" if (action.target and action.target.bounds) else "(ADB)"
+            return ExecutionResult(
+                success=True,
+                actual_widget=f'在 [{target_str}] ADB输入 "{action.input_text}"',
+                action_summary=action.summary(),
+            )
+        except Exception as e:
+            # send_keys 也失败 → 尝试最原始的 adb shell
+            try:
+                import subprocess
+                serial = self.device.serial or "127.0.0.1:5555"
+                safe_text = action.input_text.replace(" ", "%s")
+                subprocess.run(
+                    ["adb", "-s", serial, "shell", "input", "text", safe_text],
+                    capture_output=True, timeout=10,
+                )
+                return ExecutionResult(
+                    success=True,
+                    actual_widget=f'在 (ADB shell) 输入 "{action.input_text}"',
+                    action_summary=action.summary(),
+                )
+            except Exception as e2:
+                return ExecutionResult(
+                    success=False, status=ExecutionStatus.RETRYABLE,
+                    error=f"所有输入方式均失败：{e} / {e2}",
+                    action_summary=action.summary(),
+                )
 
     # ==================== 工具方法 ====================
 
