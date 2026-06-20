@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import shutil
 import urllib.request
+import urllib.error
 import ssl
 import json
 import time
@@ -150,13 +151,18 @@ def main():
             arch = run_adb(["shell", "getprop", "ro.product.cpu.abi"]).strip()
             log(f"设备CPU架构: {arch or '(未知)'}")
 
-            # arm64-v8a 是最常见的
-            if "arm64" in (arch or "").lower():
+            # 模拟器通常是 x86/x86_64，真机是 arm
+            arch_lower = (arch or "").lower()
+            if "x86_64" in arch_lower or "x86-64" in arch_lower:
+                arch_suffix = "linux_x86_64"
+            elif "x86" in arch_lower:
+                arch_suffix = "linux_x86"
+            elif "arm64" in arch_lower or "aarch64" in arch_lower:
                 arch_suffix = "linux_arm64-v8a"
-            elif "armeabi" in (arch or "").lower() or "arm" in (arch or "").lower():
+            elif "armeabi" in arch_lower or "arm" in arch_lower:
                 arch_suffix = "linux_armv7"
             else:
-                arch_suffix = "linux_armv7"  # 默认
+                arch_suffix = "linux_x86_64"  # 模拟器默认
 
             url = f"https://github.com/openatx/atx-agent/releases/download/v2.3.5/atx-agent_{arch_suffix}.apk"
             if not download_file(url, atx_apk_path):
@@ -187,19 +193,25 @@ def main():
         # ---- Step 6: 验证 ----
         print("\n[6/6] 最终验证...")
 
-        # 检查安装结果
+        # 检查安装结果（列出所有第三方包方便排查）
         pkg_list_after = run_adb(["shell", "pm", "list", "packages", "-3"])
         has_atx_ok = "com.github.uiautomator" in pkg_list_after
-        has_test_ok = "com.github.uiautomator.test" in pkg_list_after
+        # test-app 可能叫不同名字，用模糊匹配
+        has_test_ok = any("uiautomator" in p and ("test" in p.lower() or "apk" in p.lower())
+                          for p in pkg_list_after.splitlines() if p.strip())
 
-        log(f"atx-agent: {'✅' if has_atx_ok else '❌'}")
-        log(f"test-app: {'✅' if has_test_ok else '❌'}")
+        log(f"atx-agent (com.github.uiautomator): {'✅' if has_atx_ok else '❌'}")
+        log(f"test-app (含uiautomator+test/apk):  {'✅' if has_test_ok else '❌'}")
+        if not has_test_ok:
+            log("  已安装的uiautomator相关包:")
+            for line in pkg_list_after.splitlines():
+                if "uiautomator" in line.lower():
+                    log(f"    {line.strip()}")
 
         # 尝试通过 HTTP 连接 ATX Agent
         log("尝试连接 ATX Agent HTTP 服务...")
+        http_ok = False
         try:
-            import urllib.request
-            # uiautomator2 默认端口 7912
             req = urllib.request.Request(f"http://{DEVICE}:7912/version", timeout=5)
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -208,10 +220,12 @@ def main():
             version = resp.read().decode().strip()
             log(f"ATX Agent 版本: {version}")
             http_ok = True
+        except urllib.error.URLError as e:
+            log(f"ATX Agent HTTP 未响应 ({e.reason})")
+            log("  首次启动可能需要10-30秒，请稍后重试")
         except Exception as e:
-            log(f"ATX Agent HTTP 未响应 ({type(e).__name__})")
+            log(f"ATX Agent HTTP 未响应 ({type(e).__name__}: {e})")
             log("  这可能正常，首次启动需要较长时间")
-            http_ok = False
 
         # 结果汇总
         print("\n" + "=" * 55)
