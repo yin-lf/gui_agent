@@ -35,8 +35,12 @@ def main():
     print(f"     Android: SDK {info['sdkInt']}")
     print(f"     当前App: {info['currentPackageName']}")
 
+    # 确保截图目录存在
+    screenshot_dir = os.path.join(os.path.dirname(__file__), "execution_agent", "screenshots")
+    os.makedirs(screenshot_dir, exist_ok=True)
+
     # 截一张初始屏幕
-    device.screenshot(os.path.join(os.path.dirname(__file__), "execution_agent", "screenshots", "e2e_00_initial.png"))
+    device.screenshot(os.path.join(screenshot_dir, "e2e_00_initial.png"))
     print("  ✅ 初始截图已保存")
 
     # ==================== 阶段2：推理层生成 TaskTree ====================
