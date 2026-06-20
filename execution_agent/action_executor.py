@@ -123,11 +123,16 @@ class ActionExecutor:
             )
         except Exception as e:
             err_str = str(e).lower()
-            if any(kw in err_str for kw in ["not found", "no matching", "timeout"]):
+            # uiauto2 RPC 兼容性问题 或 控件未找到 → 可重试
+            if any(kw in err_str for kw in [
+                "not found", "no matching", "timeout",
+                "-32002", "-32006", "-32001", "rpcerror",
+                "uiobject",
+            ]):
                 return ExecutionResult(
                     success=False,
                     status=ExecutionStatus.RETRYABLE,
-                    error=f"控件未找到：{e}",
+                    error=f"控件操作失败（可重试）：{e}",
                     action_summary=action.summary(),
                 )
             raise
@@ -163,11 +168,16 @@ class ActionExecutor:
             )
         except Exception as e:
             err_str = str(e).lower()
-            if any(kw in err_str for kw in ["not found", "no matching", "timeout"]):
+            # uiauto2 RPC 兼容性问题 或 控件未找到 → 可重试
+            if any(kw in err_str for kw in [
+                "not found", "no matching", "timeout",
+                "-32002", "-32006", "-32001", "rpcerror",
+                "uiobject",
+            ]):
                 return ExecutionResult(
                     success=False,
                     status=ExecutionStatus.RETRYABLE,
-                    error=f"输入框未找到：{e}",
+                    error=f"输入操作失败（可重试）：{e}",
                     action_summary=action.summary(),
                 )
             raise
@@ -259,25 +269,28 @@ class ActionExecutor:
     def _build_selector_with_wait(self, target=None) -> dict | None:
         """构建 selector 并等待控件出现。
 
-        注意：uiauto2 的 wait() RPC 方法不支持 description 参数，
-        会报 -32002 错误。所以等待时先去掉 description。
+        注意：uiauto2 的 .wait() RPC 方法有兼容性问题（-32002），
+        某些选择器字段组合不支持（如 resourceId+className 同时使用等）。
+        因此改用 .exists 轮询方式等待控件出现。
         """
         selector = self._build_selector(target)
         if selector is None:
             return None
 
-        # 使用 uiauto2 的 timeout 机制等待控件出现
-        # 去掉 description（wait RPC 不支持），用其余字段等
-        wait_selector = {k: v for k, v in selector.items() if k != "description"}
-        try:
-            if wait_selector:
-                elem = self.device(**wait_selector).wait(timeout=self.wait_timeout)
+        # 用 exists 轮询代替 wait() RPC（更兼容）
+        import time as _time
+        deadline = _time.time() + self.wait_timeout
+        while _time.time() < deadline:
+            try:
+                elem = self.device(**selector)
                 if elem.exists:
-                    return selector  # 返回完整 selector（含 description）给后续操作用
-            # wait 超时或无可用字段 → 仍返回完整 selector，让 execute 本身去尝试
-            return selector
-        except Exception:
-            return selector  # wait 异常也返回 selector，让 execute 去执行并分类错误
+                    return selector
+            except Exception:
+                pass  # 忽略中间异常，继续轮询
+            _time.sleep(0.5)
+
+        # 等超时了也返回 selector，让 execute 本身去尝试操作并分类错误
+        return selector
 
     @staticmethod
     def _format_target(target) -> str:
