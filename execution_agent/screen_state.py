@@ -101,7 +101,7 @@ class ScreenCaptor:
             if (new_state.current_package != old_state.current_package or
                 new_state.current_activity != old_state.current_activity or
                 new_state.hierarchy_xml != old_state.hierarchy_xml):
-                return new_state.capture(screenshot=True)  # 变化了，重新带截图采集
+                return self.capture(screenshot=True)  # 变化了，重新带截图采集
             time.sleep(interval)
 
         print(f"⏳ 等待屏幕变化超时 ({timeout}s)")
