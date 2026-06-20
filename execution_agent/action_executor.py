@@ -114,7 +114,9 @@ class ActionExecutor:
             )
 
         try:
-            self.device(**selector).click(timeout=self.OPERATION_TIMEOUT)
+            # 不传 timeout，避免 uiauto2 内部调用有 bug 的 wait() RPC
+            # （我们已经在 _build_selector_with_wait 中用 exists 轮询等过了）
+            self.device(**selector).click()
             widget_info = self._format_target(action.target)
             return ExecutionResult(
                 success=True,
@@ -158,8 +160,8 @@ class ActionExecutor:
 
         try:
             elem = self.device(**selector)
-            # 先清空再输入
-            elem.set_text(action.input_text, timeout=self.OPERATION_TIMEOUT)
+            # 不传 timeout，避免 uiauto2 内部调用有 bug 的 wait() RPC
+            elem.set_text(action.input_text)
             widget_info = self._format_target(action.target)
             return ExecutionResult(
                 success=True,
@@ -211,7 +213,8 @@ class ActionExecutor:
                 action_summary=action.summary(),
             )
         try:
-            self.device(**selector).long_click(timeout=self.OPERATION_TIMEOUT)
+            # 不传 timeout，避免 uiauto2 内部调用有 bug 的 wait() RPC
+            self.device(**selector).long_click()
             return ExecutionResult(
                 success=True,
                 actual_widget=self._format_target(action.target),
