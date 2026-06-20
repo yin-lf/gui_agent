@@ -51,16 +51,16 @@ class WidgetUnderstander:
         return self._llm_match(step_intent, raw_text, screen_state, current_app_name)
 
     def _quick_match(self, intent: str) -> Action | None:
-        """快速规则匹配：不依赖控件树的纯意图判断。"""
+        """快速规则匹配：不依赖控件树的纯意图判断。注意：更具体的模式要排在前面！"""
         intent_lower = intent.lower()
 
-        # 返回键
-        if any(kw in intent_lower for kw in ["返回", "退回", "back", "回到上一页"]):
-            return Action(action_type=ActionType.PRESS_BACK, reasoning="检测到返回操作")
-
-        # Home键
+        # Home 键（必须在"返回"之前检测，避免"返回主页"被误判为press_back）
         if any(kw in intent_lower for kw in ["回到桌面", "返回主页", "home", "主屏幕"]):
             return Action(action_type=ActionType.PRESS_HOME, reasoning="检测到回到桌面操作")
+
+        # 返回键（排除已匹配Home的情况）
+        if any(kw in intent_lower for kw in ["返回", "退回", "back", "回到上一页"]):
+            return Action(action_type=ActionType.PRESS_BACK, reasoning="检测到返回操作")
 
         # 等待
         import re
